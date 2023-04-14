@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>Quiz 8</title>
+
+    <link rel="shortcut icon" href="carfavicon.png" type="image/x-icon">
+
+    <style>
+        /* feel free to change the canvas style. If you want to use the entire
+      window, set width: 100% and height: 100% */
+        canvas {
+            display: block;
+            margin: 10px auto;
+            width: 800px;
+            height: 500px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+    </style>
+
+    <script src="./js/three.js"> </script>
+    <script src="./js/SceneUtils.js"></script>
+    <script src="./js/OrbitControls.js"></script>
+    <!-- <script src="./js/dat.gui.js"></script> -->
+</head>
+
+<body>
+
+    <h1>Animated Wedge Car</h1>
+    <p>controls:</p>
+    <p>"q" to toggle axishelper (red x, green y, blue z)</p>
+    <p>"1" through "4" to toggle viewpoints</p>
+    <p>"g" to start animation, space to stop</p>
+    <p>"w", "s", "a", "d" to move the car</p>
+    <p>Looking at: <span id="points">(t = step#: x, y, z)</span></p>
+
+    <script>
+
+        //0. create any global variables used in your scene 
+        var state = {};
+        var ah = new THREE.AxesHelper(50);
+        var tl = new THREE.TextureLoader(); //texture loader to... load textures!
+        var UVs = []; //for car textures
+
+        var cameraParams = {
+            near: 1,
+            far: 1000,
+            fov: 55, // degrees
+            aspectRatio: 800 / 500, // from dimensions of the canvas, see CSS
+            atX: 0,
+            atY: 0,
+            atZ: 0,
+            eyeX: 250, //250
+            eyeY: 260, //260
+            eyeZ: 0,
+            upX: 0,
+            upY: 1,
+            upZ: 0
+        };
+
+        var carSize = {
+            h: 15,
+            w: 20,
+            l: 40,
+        }
+
+        var wheelSize = {
+            mult: 1
+        };
+
+        var wheelRotation = {
+            x: 0,
+            y: 0,
+            z: 0
+        };
+
+        var targetPos = {
+            x: carSize.w / 2.8,
+            y: 2.5,
+            z: -1 * carSize.l,
+        }
+
+        var radiusTop = 5 * wheelSize.mult;
+        var radiusBottom = 5 * wheelSize.mult;
+        var height = 2 * wheelSize.mult;
+        var radialSegments = 32 * wheelSize.mult;
+
+        var carPosition = {
+            x: 0,
+            y: radiusTop,
+            z: 0,
+        }
+
+        const rotationDegree = 5;
+
+        //1.  Create an initial empty Scene
+        var scene = new THREE.Scene();
+        //5. Create a renderer to render the scene
+        var renderer = new THREE.WebGLRenderer();
+
+        //TODO: 4 relevant global variables for this quiz (may not need to modify all but they are used)
+        var startingPosition = new THREE.Object3D();
+        var car = new THREE.Object3D();
+        var path = []; //for bezier curve path, should store an array of x,y,z coordinates
+        var tMax = 500; //maximum number of steps in your curve
+
+
+        function createCarBody() {
+            //HINT: (x, z) is your plane, y is your height
+            //1. Create your geometry object
+            var carGeom = new THREE.Geometry();
+
+            //vertices
+            carGeom.vertices.push(new THREE.Vector3(+carSize.w / 2, 0, -carSize.l / 2)); //0
+            carGeom.vertices.push(new THREE.Vector3(-carSize.w / 2, 0, -carSize.l / 2)); //1
+            carGeom.vertices.push(new THREE.Vector3(-carSize.w / 2, carSize.h, -carSize.l / 2)); //2
+            carGeom.vertices.push(new THREE.Vector3(carSize.w / 2, carSize.h, -carSize.l / 2)); //3
+            carGeom.vertices.push(new THREE.Vector3(-carSize.w / 2, 0, carSize.l / 2)); //4
+            carGeom.vertices.push(new THREE.Vector3(+carSize.w / 2, 0, +carSize.l / 2)); //5           
+
+            //faces - direction description as viewed from behind (view "1" orientation)
+            carGeom.faces.push(new THREE.Face3(0, 5, 1)); //bottom 1 (left)
+            carGeom.faces.push(new THREE.Face3(1, 5, 4)); //bottom 2 (right)
+            carGeom.faces.push(new THREE.Face3(0, 1, 2)); //back 1 (right)
+            carGeom.faces.push(new THREE.Face3(0, 2, 3)); //back 2 (left)
+            carGeom.faces.push(new THREE.Face3(3, 5, 0)); //side 1 (left)
+            carGeom.faces.push(new THREE.Face3(1, 4, 2)); //side 1 (right)
+            carGeom.faces.push(new THREE.Face3(3, 2, 5)); //top 1 (left)
+            carGeom.faces.push(new THREE.Face3(2, 4, 5)); //top 2 (right)
+
+            //2.5 Calculate normal vectors as necessary
+            carGeom.computeFaceNormals();
+
+            return carGeom;
+        }
+
+        function createCar(carBodyTextures, tireTextures) {
+            //Create car body geometry         
+            var carGeom = createCarBody();
+
+            //NOTE: texture UV facecoords order should match coord order of faces
+            addFaceCoordinates(0, 1, 0, 0, 0.23, 1); //051
+            addFaceCoordinates(0.23, 1, 0, 0, 0.23, 0); //154
+            addFaceCoordinates(0.47, 0.59, 0.71, 0.59, 0.71, 0.29); //012
+            addFaceCoordinates(0.47, 0.59, 0.71, 0.29, 0.47, 0.29); //023
+            addFaceCoordinates(1, 0, 0.47, 0.15, 1, 0.28); //350
+            addFaceCoordinates(1, 0.28, 0.47, 0.15, 1, 0); //142
+            addFaceCoordinates(0.23, 1, 0.46, 1, 0.23, 0); //325
+            addFaceCoordinates(0.46, 1, 0.46, 0, 0.23, 0); //245
+
+            carGeom.faceVertexUvs = [UVs];
+
+            //Create car body mesh
+            let carMesh = new THREE.Mesh(carGeom, carBodyTextures);
+            // carMesh.position.set(carPosition.x, carPosition.y, carPosition.z);
+            //Create wheel geometry
+            var wheels = new THREE.Object3D();
+            var wheelGeom = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, radialSegments);
+
+            //Create wheel mesh
+            let wheel1Mesh = new THREE.Mesh(wheelGeom, tireTextures);
+
+            //Set wheel rotation, need to rotate z axis to make wheel... wheel orientation!            
+            wheel1Mesh.rotation.set(0.01745 * wheelRotation.x, 0, Math.PI / 2);
+
+            //clone wheel1 for the other 3 wheels
+            wheel2Mesh = wheel1Mesh.clone().rotateZ(Math.PI); //rotate again for correct texture orientation
+            wheel3Mesh = wheel1Mesh.clone();
+            wheel4Mesh = wheel1Mesh.clone();
+            wheel1Mesh.rotateZ(Math.PI); //rotate again for correct texture orientation
+
+            //Add wheels composite object
+            wheels.add(wheel1Mesh);
+            wheels.add(wheel2Mesh);
+            wheels.add(wheel3Mesh);
+            wheels.add(wheel4Mesh);
+
+            //Set geometry positions
+            wheel1Mesh.position.set(carPosition.x - carSize.w / 2, 0, carPosition.z + (0.25 * carSize.l) - carSize.l /
+                1.8); //x,y,z
+            wheel2Mesh.position.set(carPosition.x - carSize.w / 2, 0, carPosition.z + (0.8 * carSize.l) - carSize.l /
+                1.9); //x,y,z
+            wheel3Mesh.position.set(carPosition.x + carSize.w / 2, 0, carPosition.z + (0.25 * carSize.l) - carSize.l /
+                1.8); //x,y,z
+            wheel4Mesh.position.set(carPosition.x + carSize.w / 2, 0, carPosition.z + (0.8 * carSize.l) - carSize.l /
+                1.9); //x,y,z
+
+            //create headlights
+            let headlights = createHeadlights();
+            let rearLights = createRearLights();
+
+            //Add objects to car composite object
+            car.add(wheels);
+            car.add(rearLights);
+            car.add(headlights);
+            car.add(carMesh);
+
+            //Add the car object to the scene        
+            scene.add(car);
+        }
+
+        function createRearLights() {
+
+            var rearLights = new THREE.Object3D();
+
+            let lightGeom = new THREE.BoxGeometry(carSize.w / 5, carSize.h / 10, carSize.l / 20);
+
+            let material = new THREE.MeshPhongMaterial({
+                color: new THREE.Color("red"),
+                specular: new THREE.Color("white"),
+                shininess: 1,
+                flatShading: THREE.FlatShading,
+                emissive: new THREE.Color("red"),
+                emissiveIntensity: 0.6,
+                opacity: 0.8,
+                transparent: true,
+            });
+
+            let lightMesh = new THREE.Mesh(lightGeom, material);
+
+            lightMesh.rotateX(THREE.Math.degToRad(90));
+
+            let light2Mesh = lightMesh.clone();
+
+            let lpos = {
+                x: carSize.w / 3.1,
+                y: 5.8,
+                z: -carSize.l / 2
+            }
+
+            lightMesh.position.set(lpos.x, lpos.y, lpos.z);
+            light2Mesh.position.set(-lpos.x, lpos.y, lpos.z);
+
+            rearLights.add(lightMesh);
+            rearLights.add(light2Mesh);
+
+
+            //add lighting
+            let light1 = new THREE.SpotLight(
+                new THREE.Color("red"), //color
+                0.3, //intensity
+                1, //distance - is infinite
+                THREE.Math.degToRad(180), //angle
+                1, //penumbra
+                0, //decay
+            );
+
+            light1.position.set(carSize.w / 2.8, 1, -carSize.l / 1.8);
+
+            let target = new THREE.Object3D();
+            target.position.set(targetPos.x, targetPos.y, targetPos.z + carSize.l - 23);
+            light1.target = target;
+
+            rearLights.add(light1);
+            rearLights.add(target);
+
+
+            let light2 = new THREE.SpotLight(
+                new THREE.Color("red"), //color
+                0.3, //intensity
+                1, //distance - is infinite
+                THREE.Math.degToRad(180), //angle
+                1, //penumbra
+                0, //decay
+            );
+
+            light2.position.set(-carSize.w / 2.8, 1, -carSize.l / 1.8);
+
+            let target2 = new THREE.Object3D();
+            target2.position.set(-targetPos.x, targetPos.y, targetPos.z + carSize.l -
+                23); //negative x to offset second light
+            light2.target = target2;
+
+            rearLights.add(light2);
+            rearLights.add(target2);
+
+            return rearLights;
+        }
+
+        function createHeadlight() {
+
+            let headlight = new THREE.Object3D();
+
+            let radius = carSize.w / 7;
+            let height = 8.5;
+            let radialSegments = 4;
+            let heightSegments = 1;
+            let openEnded = true;
+
+            let headlightPart = new THREE.ConeGeometry(radius, height, radialSegments, heightSegments, openEnded);
+
+            const headlightMaterial = new THREE.MeshPhongMaterial({
+                color: new THREE.Color(0x266eb3),
+                specular: new THREE.Color("white"),
+                shininess: 5,
+                flatShading: THREE.FlatShading,
+                side: THREE.DoubleSide
+            });
+
+            const headlightPartMesh = new THREE.Mesh(headlightPart, headlightMaterial);
+
+            headlightPartMesh.rotation.set(THREE.Math.degToRad(-90), THREE.Math.degToRad(45), 0);
+
+            //create bulb
+            let bulbGeom = new THREE.ConeGeometry(radius * 0.6, height, radialSegments * 3, heightSegments, !openEnded);
+
+            const bulbMaterial = new THREE.MeshPhongMaterial({
+                color: new THREE.Color(0xeedd82),
+                specular: new THREE.Color("white"),
+                shininess: 100,
+                flatShading: THREE.FlatShading,
+                // side: THREE.DoubleSide,
+                emissive: new THREE.Color(0xeedd82),
+                emissiveIntensity: 1,
+            });
+
+            let bulbMesh = new THREE.Mesh(bulbGeom, bulbMaterial);
+            bulbMesh.translateZ(-0.5);
+            bulbMesh.translateY(-0.1);
+            bulbMesh.rotateX(THREE.Math.degToRad(-90));
+            headlight.add(bulbMesh);
+            headlight.add(headlightPartMesh);
+
+            //light for the bulb            
+            let bulbLight = createLight({
+                x: 0,
+                y: 1,
+                z: 0
+            });
+            headlight.add(bulbLight);
+
+            let bulbTarget = createLightTarget({
+                x: 0,
+                y: 2,
+                z: 60
+            });
+            bulbLight.target = bulbTarget;
+            headlight.add(bulbTarget);
+
+
+
+            return headlight;
+        }
+
+        function createLight(pos) {
+            let light = new THREE.SpotLight(
+                new THREE.Color(0xeedd82), //color
+                0.4, //intensity 0-1
+                0, //distance
+                THREE.Math.degToRad(60), //angle
+                0.2, //penumbra 0-1
+                1 //decay
+            );
+            light.position.set(pos.x, pos.y, pos.z);
+            return light;
+        }
+
+        function createLightTarget(pos) {
+            let target = new THREE.Object3D();
+            target.translateX(pos.x);
+            target.translateY(pos.y);
+            target.translateZ(pos.z);
+            return target;
+        }
+
+        function createHeadlights() {
+            //create headlights
+            var headlights = new THREE.Object3D();
+
+            let headlight1 = createHeadlight();
+            let headlight2 = createHeadlight();
+
+            headlight1.position.set(-carSize.w / 3.5, 2, carSize.l / 2.5);
+            headlight2.position.set(carSize.w / 3.5, 2, carSize.l / 2.5);
+
+            headlights.add(headlight1);
+            headlights.add(headlight2);
+
+            return headlights;
+        }
+
+        //7. Set up a camera for the scene
+        var camera = setupCamera(cameraParams);
+
+        // setupCamera() function creates and returns a camera with the desired parameters
+        function setupCamera(cameraParameters) {
+            // set up an abbreviation 
+            var cp = cameraParameters;
+            // create an initial camera with the desired shape
+            var camera = new THREE.PerspectiveCamera(cp.fov, cp.aspectRatio, cp.near, cp.far);
+            // set the camera location and orientation
+            camera.position.set(cp.eyeX, cp.eyeY, cp.eyeZ);
+            camera.up.set(cp.upX, cp.upY, cp.upZ);
+            camera.lookAt(new THREE.Vector3(cp.atX, cp.atY, cp.atZ));
+            return camera;
+        }
+
+        function redoCamera() {
+            scene.remove(camera);
+            camera = setupCamera(cameraParams);
+            scene.add(camera)
+            render();
+        }
+
+        function render() {
+            // a render function; assume global variables scene, renderer, and camera
+            renderer.render(scene, camera);
+        }
+
+        function setupCameraControls() {
+            var cameraControls = new THREE.OrbitControls(camera, canvas);
+            state.cameraControls = cameraControls;
+            cameraControls.addEventListener('change', render);
+            cameraControls.update();
+        }
+
+        function addFaceCoordinates(as, at, bs, bt, cs, ct) {
+            // adds the texture coordinates for a single face to the UVs array
+            /*
+                recall you need 3 points for face coordinates
+                point a, b, and c.
+                each of these points has an (s, t) coordinate.
+                the parameters for this function are the (s, t) pairs for these
+                three coordinates which are then added to the (global) UVs array.
+            */
+            UVs.push([new THREE.Vector2(as, at),
+            new THREE.Vector2(bs, bt),
+            new THREE.Vector2(cs, ct)
+            ]);
+        }
+
+
+        // build the scene
+        // add ambient light source
+        var ambLight = new THREE.AmbientLight(new THREE.Color("white"), 0.5);
+        scene.add(ambLight);
+        // add the canvas to the document, enables display of 3D coordinate axes, sets up camera controls
+        var canvas = renderer.domElement;
+        state.renderer = renderer; // save this so that others can use it.
+        state.scene = scene; // save this so that others can use it.
+        var parent = document.body;
+        parent.appendChild(canvas);
+        renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        renderer.setClearColor(new THREE.Color(0xf0f0f0), 1);
+
+        scene.add(camera);
+        setupCameraControls(); //set up camera controls so we can use mouse to pan around scene
+
+        scene.add(ah); //add axishelper to scene -- created as a global variable
+        ah.visible = false; //toggle off to start, see keypress event listener
+
+        var texture = tl.load("texture-map.png", render);
+        texture.flipY = false;
+
+        let carTexture = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            map: texture
+        });
+
+        var texture2 = tl.load("tire3.jpg", render);
+        var texture3 = tl.load("tire-inner.jpg", render);
+
+        let wheelMaterials = [
+            new THREE.MeshPhongMaterial({
+                color: new THREE.Color(0x1a1a1a),
+                specular: new THREE.Color("grey"),
+                shininess: 1,
+                flatShading: THREE.FlatShading,
+            }),
+            new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                map: texture3
+            }),
+            new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                map: texture2
+            }),
+        ];
+
+        createCar(carTexture, wheelMaterials);
+        car.translateZ(-200); //initialize car position
+        car.lookAt(new THREE.Vector3(path[0])); //look at first point in bezier curve path
+
+        startingPosition.position.copy(car.position); //copy starting position to reset animation
+
+        //outside
+        let outsideTexture = tl.load("world.jpg", render);
+        outsideTexture.wrapS = THREE.RepeatWrapping;
+        outsideTexture.wrapT = THREE.RepeatWrapping;
+        outsideTexture.needsUpdate = true;
+        // worldTexture.repeat.set(50, 50);
+
+        var outsideMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(500, 500, 500),
+            new THREE.MeshBasicMaterial({ //basic so we don't get light interactions from car
+                color: new THREE.Color("grey"),
+                flatShading: THREE.FlatShading,
+                side: THREE.BackSide,
+                map: outsideTexture  //TODO: can temporarily comment out to see without local server
+            }));
+
+        outsideMesh.translateY(250 - (radiusTop + 0.02));
+        scene.add(outsideMesh);
+
+        // add a ground to the scene
+        let groundTexture = tl.load("ground.jpg", render);
+        groundTexture.wrapS = THREE.RepeatWrapping;
+        groundTexture.wrapT = THREE.RepeatWrapping;
+        groundTexture.needsUpdate = true;
+        groundTexture.repeat.set(5, 5);
+
+        var groundMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(500, 500),
+            new THREE.MeshPhongMaterial({
+                color: new THREE.Color(0x76552b),
+                specular: new THREE.Color("white"),
+                shininess: 10,
+                flatShading: THREE.FlatShading,
+                side: THREE.DoubleSide,
+                map: groundTexture //TODO: can temporarily comment out to see without local server
+            }));
+
+        groundMesh.translateY(-radiusTop + 0.02);
+        groundMesh.rotateX(THREE.Math.degToRad(90));
+        scene.add(groundMesh);
+
+        // add a building to the scene
+        let buildingTexture = tl.load("building.jpg", render);
+        buildingTexture.wrapS = THREE.RepeatWrapping;
+        buildingTexture.wrapT = THREE.RepeatWrapping;
+        buildingTexture.needsUpdate = true;
+        buildingTexture.repeat.set(2, 5);
+
+        let buildingMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(50, 200, 50),
+            new THREE.MeshPhongMaterial({
+                color: new THREE.Color("grey"),
+                specular: new THREE.Color("white"),
+                shininess: 5,
+                flatShading: THREE.FlatShading,
+                map: buildingTexture,
+            }));
+        buildingMesh.translateY(100 - (radiusTop + 0.02));
+        buildingMesh.translateZ(-45);
+        buildingMesh.translateX(-25);
+        scene.add(buildingMesh);
+
+        //another building
+        let building2Texture = tl.load("building3.jpg", render);
+        building2Texture.wrapS = THREE.RepeatWrapping;
+        building2Texture.wrapT = THREE.RepeatWrapping;
+        building2Texture.needsUpdate = true;
+        building2Texture.repeat.set(5, 1);
+
+        let building2 = new THREE.Mesh(
+            new THREE.ConeGeometry(150, 180, 3),
+            new THREE.MeshPhongMaterial({
+                color: new THREE.Color("grey"),
+                specular: new THREE.Color("white"),
+                shininess: 5,
+                flatShading: THREE.FlatShading,
+                map: building2Texture,
+            }));
+        building2.rotateY(THREE.Math.degToRad(30));
+        building2.translateY(90 - (radiusTop + 0.02));
+        building2.translateZ(110);
+        building2.translateX(75);
+        scene.add(building2);
+
+        //TODO: the section below is also relevant today
+        //animation and bezier curve variables/functions -->
+
+        //You don't necessarily need to update this function but you do need to understand it for your solution
+        function moveCarFoward() {
+            //for debugging and... a big hint
+            document.getElementById("points").innerText = "(t: " + t + ") " + path[t].x.toFixed(2) + ", " + path[t].y.toFixed(2) + ", " + path[t].z.toFixed(2);
+            // console.log((t));
+            // console.log((path[t].x + ", " + path[t].y + ", " + path[t].z));
+
+            //get next point on the path of our bezier curve, we want to move towards it
+            let targetDirection = new THREE.Vector3(path[t].x, path[t].y, path[t].z);
+
+            let position = new THREE.Vector3(); //need a vector to store a position
+            car.getWorldPosition(position); //get car current position -- getWorldPosition requires target return object
+            let distance = position.distanceTo(targetDirection); //calculate distance between car and point we want to move towards            
+            // console.log("distance: " + distance);
+            car.lookAt(targetDirection); //"rotate" car to face the point we'll move towards
+            car.translateZ(distance); //move to the new position (Z because that is the "forward" direction according to how we built the car)
+
+            render(); //update scene
+        }
+
+        //TODO: you need to update this function so it only animates over the path of the curve
+        function animate(timestamp) {
+            //What is the constraint that stops animation?
+            //what are the "update" steps?
+        }
+
+        function stopAnimation() {
+            if (animationId != null) {
+                cancelAnimationFrame(animationId);
+                console.log("Cancelled animation using " + animationId);
+            }
+        }
+
+        function createPoint(P, radius, material) {
+            // returns a mesh for a sphere of given radius and material at the
+            // given location (a list of three coordinates), suitable for adding
+            // to the scene. More for debugging than anything else.
+            radius = radius || 0.1;
+            material = material || new THREE.MeshNormalMaterial();
+            var mesh = new THREE.Mesh(new THREE.SphereGeometry(radius), material);
+            mesh.position.set(P[0], P[1], P[2]);
+            return mesh;
+        };
+
+        function showCP(cpList, radius) {
+            for (var i = 0; i < cpList.length; i++) {
+                scene.add(createPoint(cpList[i], radius));
+            }
+        };
+
+        //TODO: you have to modify this function keep track of / generate points on the curve!
+        function createBezierCurve(cpList, steps) {
+            // Using the given list of control points, returns a
+            // THREE.Geometry comprising 'steps' vertices, suitable for
+            // combining with a material and creating a THREE.Line out of.
+            var N = Math.round(steps) + 1 || tMax; // number of vertices
+
+            var geometry = new THREE.Geometry();
+            var curve = new THREE.CubicBezierCurve3();
+
+            var cp = cpList[0];
+            curve.v0 = new THREE.Vector3(cp[0], cp[1], cp[2]);
+            cp = cpList[1];
+            curve.v1 = new THREE.Vector3(cp[0], cp[1], cp[2]);
+            cp = cpList[2];
+            curve.v2 = new THREE.Vector3(cp[0], cp[1], cp[2]);
+            cp = cpList[3];
+            curve.v3 = new THREE.Vector3(cp[0], cp[1], cp[2]);
+
+            var j, stepSize = 1 / (N - 1);
+            for (j = 0; j < N; j++) {
+                geometry.vertices.push(curve.getPoint(j * stepSize));
+            }
+            return geometry;
+        };
+
+        var animationId = null;
+
+        //TODO: determine control points
+        var controlPoints = [
+            [0, 0, 0],
+            [0, 0, 0],
+            [0, 0, 0],
+            [0, 0, 0]
+        ];
+
+        var t = 0; //start of the curve, ends at tMax
+
+        showCP(controlPoints, 10);
+
+        //TODO: create bezier curve using control points
+
+
+        //TODO: add curve to scene as a "sanity check"
+
+        render(); //render the scene now
+
+        // keypress event listener
+        document.addEventListener("keypress", (event) => {
+            const key = event.key;
+            console.log("key pressed was " + key);
+            switch (key) {
+                case "1":
+                    cameraParams.eyeX = -250;
+                    cameraParams.eyeY = 100;
+                    cameraParams.eyeZ = 200;
+                    redoCamera();
+                    break;
+                case "2":
+                    cameraParams.eyeX = 0;
+                    cameraParams.eyeY = 30;
+                    cameraParams.eyeZ = -300;
+                    redoCamera();
+                    break;
+
+                case "3":
+                    cameraParams.eyeX = 0;
+                    cameraParams.eyeY = 60;
+                    cameraParams.eyeZ = 300;
+                    redoCamera();
+                    break;
+                case "4":
+                    cameraParams.eyeX = 250;
+                    cameraParams.eyeY = 260;
+                    cameraParams.eyeZ = 0;
+                    redoCamera();
+                    break;
+                case "q":
+                    ah.visible = !ah.visible;
+                    break;
+                case "g":
+                    //TODO: it may be helpful if you try to move one step 
+                    //      at a time first before animating the whole curve
+                    // no changes required here, just a hopefully helpful thought
+                    animate();
+                    break;
+                case " ":
+                    stopAnimation();
+                    break;
+                case "d":
+                    car.rotateY(THREE.Math.degToRad(-rotationDegree));
+                    break;
+                case "a":
+                    car.rotateY(THREE.Math.degToRad(rotationDegree));
+                    break;
+                case "w":
+                    car.translateZ(5);
+                    break;
+                case "s":
+                    car.translateZ(-5);
+                    break;
+                case "0":
+                    //move the car back to the starting position (variable set at the start)
+                    car.position.set(startingPosition.position.x, startingPosition.position.y, startingPosition.position.z);
+                    //TODO: take note of the lookAt function, this rotates the car to look at the origin.
+                    //How is this be helpful? Is this where we want to orient the car? What happens if we don't do this?
+                    car.lookAt(new THREE.Vector3(0, 0, 0));
+                    t = 0; //reset to start over
+                    break;
+                default:
+                    break;
+            }
+            setupCameraControls();
+            render();
+        });
+    </script>
+
+</body>
+
+</html>
